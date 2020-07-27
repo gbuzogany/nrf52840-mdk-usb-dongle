@@ -13,8 +13,10 @@ int main(void)
     
 	while (true)
 	{
-        __WFE();
+        // Make sure any pending events are cleared
         __SEV();
+        __WFE();
+        // Enter System ON sleep mode
         __WFE();
 	}
 }
