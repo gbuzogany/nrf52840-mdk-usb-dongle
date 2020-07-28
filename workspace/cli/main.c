@@ -124,10 +124,14 @@ static void thread_instance_init(void)
     };
 
     thread_init(&thread_configuration);
-    // thread_cli_init();
+
+    thread_cli_init();
     thread_state_changed_callback_set(thread_state_changed_callback);
 
     uint32_t err_code = bsp_thread_init(thread_ot_instance_get());
+    APP_ERROR_CHECK(err_code);
+
+    err_code = otPlatRadioSetTransmitPower(thread_ot_instance_get(), 8);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -211,7 +215,6 @@ int main(int argc, char *argv[])
 
             if (NRF_LOG_PROCESS() == false)
             {
-                LEDS_OFF(LEDS_MASK);
                 thread_sleep();
             }
         }

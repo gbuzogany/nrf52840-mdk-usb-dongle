@@ -131,6 +131,9 @@ static void thread_bsp_init(void)
 
     err_code = bsp_thread_init(thread_ot_instance_get());
     APP_ERROR_CHECK(err_code);
+
+    err_code = otPlatRadioSetTransmitPower(thread_ot_instance_get(), 8);
+    APP_ERROR_CHECK(err_code);
 }
 
 /**@brief Function for initializing the Thread Stack.
