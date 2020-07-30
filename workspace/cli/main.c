@@ -76,8 +76,6 @@ static void thread_state_changed_callback(uint32_t flags, void * p_context)
 {
     NRF_LOG_INFO("State changed! Flags: 0x%08x Current role: %d\r\n",
                  flags, otThreadGetDeviceRole(p_context));
-
-    LEDS_OFF(LEDS_MASK);
 }
 
 /***************************************************************************************************

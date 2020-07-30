@@ -5,11 +5,14 @@
 
 // nrf
 #include "app_scheduler.h"
-#include "app_timer.h"
+// #include "app_timer.h"
 #include "bsp_thread.h"
 #include "nrf_log_ctrl.h"
 #include "nrf_log.h"
 #include "nrf_log_default_backends.h"
+
+// gpio
+// #include "drv_gpio.h"
 
 // timer
 #include "nrf.h"
@@ -59,18 +62,17 @@ static mqttsn_topic_t       m_topic            =                            /**<
     .topic_id     = 0,
 };
 
-static void bsp_event_handler(bsp_event_t event);
+// static void bsp_event_handler(bsp_event_t event);
 
 // end mqtt sn
 // saadc
 
 #define SAMPLES_IN_BUFFER 5
 volatile uint8_t state = 1;
+volatile uint8_t counter = 0;
 
 static const nrf_drv_timer_t m_timer = NRF_DRV_TIMER_INSTANCE(2);
-static nrf_saadc_value_t     m_buffer_pool[2][SAMPLES_IN_BUFFER];
-static nrf_ppi_channel_t     m_ppi_channel;
-static uint32_t              m_adc_evt_counter;
+static nrf_saadc_value_t     m_buffer[SAMPLES_IN_BUFFER];
 
 // end saadc
 
@@ -97,11 +99,11 @@ static void thread_state_changed_callback(uint32_t flags, void * p_context)
 
 /**@brief Function for initializing the Application Timer Module.
  */
-static void timer_init(void)
-{
-    uint32_t err_code = app_timer_init();
-    APP_ERROR_CHECK(err_code);
-}
+// static void timer_init(void)
+// {
+//     uint32_t err_code = app_timer_init();
+//     APP_ERROR_CHECK(err_code);
+// }
 
 /**@brief Function for initializing the LEDs.
  */
@@ -126,11 +128,12 @@ static void log_init(void)
 static void thread_bsp_init(void)
 {
     uint32_t err_code;
-    err_code = bsp_init(BSP_INIT_LEDS | BSP_INIT_BUTTONS, bsp_event_handler);
-    APP_ERROR_CHECK(err_code);
+    // err_code = bsp_init(BSP_INIT_LEDS | BSP_INIT_BUTTONS, bsp_event_handler);
+    // APP_ERROR_CHECK(err_code);
 
-    err_code = bsp_thread_init(thread_ot_instance_get());
-    APP_ERROR_CHECK(err_code);
+    // disable LEDS for thread state
+    // err_code = bsp_thread_init(thread_ot_instance_get());
+    // APP_ERROR_CHECK(err_code);
 
     err_code = otPlatRadioSetTransmitPower(thread_ot_instance_get(), 8);
     APP_ERROR_CHECK(err_code);
@@ -487,10 +490,7 @@ static void set_radio_on(void)
 
     mode.mRxOnWhenIdle       = true;
     mode.mSecureDataRequests = true;
-#ifdef OPENTHREAD_FTD
-    mode.mDeviceType         = true;
-    mode.mNetworkData        = true;
-#endif
+
     error = otThreadSetLinkMode(thread_ot_instance_get(), mode);
     ASSERT(error == OT_ERROR_NONE);
 }
@@ -512,75 +512,103 @@ static void set_radio_off(void)
  * @section buttons
  **************************************************************************************************/
 
-static void bsp_event_handler(bsp_event_t event)
-{
-    if (event == BSP_EVENT_KEY_0) 
-    {   
-            wake_up();
+// static void bsp_event_handler(bsp_event_t event)
+// {
+//     if (event == BSP_EVENT_KEY_0) 
+//     {   
+//             wake_up();
 
-            uint32_t err_code = mqttsn_client_search_gateway(&m_client, SEARCH_GATEWAY_TIMEOUT);
-            if (err_code != NRF_SUCCESS)
-            {
-                NRF_LOG_ERROR("SEARCH GATEWAY message could not be sent. Error: 0x%x\r\n", err_code);
-                otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "SEARCH GATEWAY message could not be sent. Error: 0x%x\r\n", err_code);
-            }
-    }         
-}
+//             uint32_t err_code = mqttsn_client_search_gateway(&m_client, SEARCH_GATEWAY_TIMEOUT);
+//             if (err_code != NRF_SUCCESS)
+//             {
+//                 NRF_LOG_ERROR("SEARCH GATEWAY message could not be sent. Error: 0x%x\r\n", err_code);
+//                 otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "SEARCH GATEWAY message could not be sent. Error: 0x%x\r\n", err_code);
+//             }
+//     }
+// }
 
 /***************************************************************************************************
  * @section SAADC
  **************************************************************************************************/
 void timer_handler(nrf_timer_event_t event_type, void * p_context)
 {
-    otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "SAADC timer fired");
+
+    if (state == 1 && counter < 20) {
+        counter++;
+    }
+    else if(state == 1) {
+        counter = 0;
+        state = 2;
+
+        // power sensor
+        nrf_gpio_pin_write(19, 1);
+
+        otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "Sensor powered");
+    }
+    else if(state == 2) {
+        // 500ms after, take measurement
+        otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "Measurement taken");
+        nrf_drv_saadc_sample();
+        state = 3;
+    }
+    else if(state == 3) {
+        // cut sensor power
+        otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "Sensor cut");
+        nrf_gpio_pin_write(19, 0);
+
+        state = 1;
+    }
 }
 
-void saadc_sampling_event_init(void)
-{
-    ret_code_t err_code;
+// void saadc_sampling_event_init(void)
+// {
+//     ret_code_t err_code;
 
-    err_code = nrf_drv_ppi_init();
-    APP_ERROR_CHECK(err_code);
+//     err_code = nrf_drv_ppi_init();
+//     APP_ERROR_CHECK(err_code);
 
-    nrf_drv_timer_config_t timer_cfg = NRF_DRV_TIMER_DEFAULT_CONFIG;
-    timer_cfg.bit_width = NRF_TIMER_BIT_WIDTH_32;
-    err_code = nrf_drv_timer_init(&m_timer, &timer_cfg, timer_handler);
-    APP_ERROR_CHECK(err_code);
+//     nrf_drv_timer_config_t timer_cfg = NRF_DRV_TIMER_DEFAULT_CONFIG;
+//     timer_cfg.bit_width = NRF_TIMER_BIT_WIDTH_32;
+//     err_code = nrf_drv_timer_init(&m_timer, &timer_cfg, timer_handler);
+//     APP_ERROR_CHECK(err_code);
 
-    /* setup m_timer for compare event every 400ms */
-    uint32_t ticks = nrf_drv_timer_ms_to_ticks(&m_timer, 2000);
-    nrf_drv_timer_extended_compare(&m_timer,
-                                   NRF_TIMER_CC_CHANNEL0,
-                                   ticks,
-                                   NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK,
-                                   false);
-    nrf_drv_timer_enable(&m_timer);
+//     /* setup m_timer for compare event every 400ms */
+//     uint32_t ticks = nrf_drv_timer_ms_to_ticks(&m_timer, 2000);
+//     nrf_drv_timer_extended_compare(&m_timer,
+//                                    NRF_TIMER_CC_CHANNEL0,
+//                                    ticks,
+//                                    NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK,
+//                                    false);
+//     nrf_drv_timer_enable(&m_timer);
+    
+//     uint32_t timer_compare_event_addr = nrf_drv_timer_compare_event_address_get(&m_timer,
+//                                                                                 NRF_TIMER_CC_CHANNEL0);
+//     uint32_t saadc_sample_task_addr   = nrf_drv_saadc_sample_task_get();
 
-    uint32_t timer_compare_event_addr = nrf_drv_timer_compare_event_address_get(&m_timer,
-                                                                                NRF_TIMER_CC_CHANNEL0);
-    uint32_t saadc_sample_task_addr   = nrf_drv_saadc_sample_task_get();
+//     /* setup ppi channel so that timer compare event is triggering sample task in SAADC */
+//     err_code = nrf_drv_ppi_channel_alloc(&m_ppi_channel);
+//     APP_ERROR_CHECK(err_code);
 
-    /* setup ppi channel so that timer compare event is triggering sample task in SAADC */
-    err_code = nrf_drv_ppi_channel_alloc(&m_ppi_channel);
-    APP_ERROR_CHECK(err_code);
-
-    err_code = nrf_drv_ppi_channel_assign(m_ppi_channel,
-                                          timer_compare_event_addr,
-                                          saadc_sample_task_addr);
-    APP_ERROR_CHECK(err_code);
-}
+//     err_code = nrf_drv_ppi_channel_assign(m_ppi_channel,
+//                                           timer_compare_event_addr,
+//                                           saadc_sample_task_addr);
+//     APP_ERROR_CHECK(err_code);
+// }
 
 
-void saadc_sampling_event_enable(void)
-{
-    ret_code_t err_code = nrf_drv_ppi_channel_enable(m_ppi_channel);
+// void saadc_sampling_event_enable(void)
+// {
+//     ret_code_t err_code = nrf_drv_ppi_channel_enable(m_ppi_channel);
+//     otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "saadc_sampling_event_enable");
 
-    APP_ERROR_CHECK(err_code);
-}
+//     APP_ERROR_CHECK(err_code);
+// }
+
 
 void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 {
-    otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "saadc_callback");
+    otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "saadc_callback: %d", p_event->type);
+
     if (p_event->type == NRF_DRV_SAADC_EVT_DONE)
     {
         ret_code_t err_code;
@@ -588,19 +616,22 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         err_code = nrf_drv_saadc_buffer_convert(p_event->data.done.p_buffer, SAMPLES_IN_BUFFER);
         APP_ERROR_CHECK(err_code);
 
-        int i;
-        otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "ADC event number: %d", (int)m_adc_evt_counter);
-
-        for (i = 0; i < SAMPLES_IN_BUFFER; i++)
+        int total = 0;
+        
+        for (int i = 0; i < SAMPLES_IN_BUFFER; i++)
         {
+            total += p_event->data.done.p_buffer[i];
             otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "%d", p_event->data.done.p_buffer[i]);
         }
 
+        int16_t value = total / SAMPLES_IN_BUFFER;
+
+        otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "Avg: %d", value);
+
         if (mqttsn_client_state_get(&m_client) == MQTTSN_CLIENT_CONNECTED)
         {
-            int16_t val = p_event->data.done.p_buffer[0];
             char buffer[51] = {};
-            sprintf(buffer, "{ \"measurement\" : %d }", val);
+            sprintf(buffer, "{ \"measurement\" : %d }", value);
 
             otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "Publishing ADC state %s", buffer);
 
@@ -616,8 +647,6 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         {
             find_gateway();
         }
-
-        m_adc_evt_counter++;
     }
 }
 
@@ -625,7 +654,10 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 void saadc_init(void)
 {
     ret_code_t err_code;
-    nrf_saadc_channel_config_t channel_config =
+    uint32_t time_ms = 500;
+    uint32_t time_ticks;
+    
+    nrf_saadc_channel_config_t channel_config = 
         NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN0);
 
     err_code = nrf_drv_saadc_init(NULL, saadc_callback);
@@ -634,12 +666,19 @@ void saadc_init(void)
     err_code = nrf_drv_saadc_channel_init(0, &channel_config);
     APP_ERROR_CHECK(err_code);
 
-    err_code = nrf_drv_saadc_buffer_convert(m_buffer_pool[0], SAMPLES_IN_BUFFER);
+    err_code = nrf_drv_saadc_buffer_convert(m_buffer, SAMPLES_IN_BUFFER);
     APP_ERROR_CHECK(err_code);
 
-    err_code = nrf_drv_saadc_buffer_convert(m_buffer_pool[1], SAMPLES_IN_BUFFER);
+    nrf_drv_timer_config_t timer_cfg = NRF_DRV_TIMER_DEFAULT_CONFIG;
+    err_code = nrf_drv_timer_init(&m_timer, &timer_cfg, timer_handler);
     APP_ERROR_CHECK(err_code);
 
+    time_ticks = nrf_drv_timer_ms_to_ticks(&m_timer, time_ms);
+
+    nrf_drv_timer_extended_compare(
+        &m_timer, NRF_TIMER_CC_CHANNEL0, time_ticks, NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK, true);
+
+    nrf_drv_timer_enable(&m_timer);
 }
 
 void otPlatLog(otLogLevel aLogLevel, otLogRegion aLogRegion, const char *aFormat, ...)
@@ -654,6 +693,10 @@ void otPlatLog(otLogLevel aLogLevel, otLogRegion aLogRegion, const char *aFormat
     // va_end(ap);
 }
 
+void init_gpio() 
+{
+    nrf_gpio_cfg_output(19);
+}
 
 /***************************************************************************************************
  * @section Main
@@ -663,16 +706,17 @@ int main(int argc, char *argv[])
 {
     log_init();
     // scheduler_init();
-    timer_init();
+    // timer_init();
     leds_init();
+
+    init_gpio();
 
     thread_instance_init();
     thread_bsp_init();
 
     saadc_init();
-
-    saadc_sampling_event_init();
-    saadc_sampling_event_enable();
+    // saadc_sampling_event_init();
+    // saadc_sampling_event_enable();
 
     otInstance *instance = thread_ot_instance_get();
 
