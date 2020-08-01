@@ -67,7 +67,7 @@ static mqttsn_topic_t       m_topic            =                            /**<
 // end mqtt sn
 // saadc
 
-#define SAMPLES_IN_BUFFER 5
+#define SAMPLES_IN_BUFFER 4
 volatile uint8_t state = 1;
 volatile uint8_t counter = 0;
 
@@ -533,7 +533,8 @@ static void set_radio_off(void)
 void timer_handler(nrf_timer_event_t event_type, void * p_context)
 {
 
-    if (state == 1 && counter < 20) {
+    // if (state == 1 && counter < 20) {
+    if (state == 1 && counter < 117) {
         counter++;
     }
     else if(state == 1) {
@@ -541,7 +542,7 @@ void timer_handler(nrf_timer_event_t event_type, void * p_context)
         state = 2;
 
         // power sensor
-        nrf_gpio_pin_write(19, 1);
+        nrf_gpio_pin_write(19, 0);
 
         otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "Sensor powered");
     }
@@ -554,8 +555,7 @@ void timer_handler(nrf_timer_event_t event_type, void * p_context)
     else if(state == 3) {
         // cut sensor power
         otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "Sensor cut");
-        nrf_gpio_pin_write(19, 0);
-
+        nrf_gpio_pin_write(19, 1);
         state = 1;
     }
 }
@@ -616,26 +616,24 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
         err_code = nrf_drv_saadc_buffer_convert(p_event->data.done.p_buffer, SAMPLES_IN_BUFFER);
         APP_ERROR_CHECK(err_code);
 
-        int total = 0;
-        
         for (int i = 0; i < SAMPLES_IN_BUFFER; i++)
         {
-            total += p_event->data.done.p_buffer[i];
             otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "%d", p_event->data.done.p_buffer[i]);
         }
 
-        int16_t value = total / SAMPLES_IN_BUFFER;
-
-        otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "Avg: %d", value);
-
         if (mqttsn_client_state_get(&m_client) == MQTTSN_CLIENT_CONNECTED)
         {
-            char buffer[51] = {};
-            sprintf(buffer, "{ \"measurement\" : %d }", value);
+            char buffer[100] = {};
+            sprintf(buffer, "{ \"a0\" : %d, \"a1\" : %d, \"a2\" : %d, \"a3\" : %d }", 
+                p_event->data.done.p_buffer[0],
+                p_event->data.done.p_buffer[1],
+                p_event->data.done.p_buffer[2],
+                p_event->data.done.p_buffer[3]
+            );
 
             otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "Publishing ADC state %s", buffer);
 
-            err_code = mqttsn_client_publish(&m_client, m_topic.topic_id, (uint8_t*)&buffer, 50, &m_msg_id);
+            err_code = mqttsn_client_publish(&m_client, m_topic.topic_id, (uint8_t*)&buffer, 99, &m_msg_id);
             if (err_code != NRF_SUCCESS)
             {
                 NRF_LOG_ERROR("PUBLISH message could not be sent. Error code: 0x%x\r\n", err_code);
@@ -657,13 +655,24 @@ void saadc_init(void)
     uint32_t time_ms = 500;
     uint32_t time_ticks;
     
-    nrf_saadc_channel_config_t channel_config = 
-        NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN0);
-
     err_code = nrf_drv_saadc_init(NULL, saadc_callback);
     APP_ERROR_CHECK(err_code);
 
-    err_code = nrf_drv_saadc_channel_init(0, &channel_config);
+    nrf_saadc_channel_config_t channel_config_a0 = NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN0);
+    nrf_saadc_channel_config_t channel_config_a1 = NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN1);
+    nrf_saadc_channel_config_t channel_config_a2 = NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN2);
+    nrf_saadc_channel_config_t channel_config_a3 = NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN3);
+
+    err_code = nrf_drv_saadc_channel_init(0, &channel_config_a0);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = nrf_drv_saadc_channel_init(1, &channel_config_a1);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = nrf_drv_saadc_channel_init(2, &channel_config_a2);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = nrf_drv_saadc_channel_init(3, &channel_config_a3);
     APP_ERROR_CHECK(err_code);
 
     err_code = nrf_drv_saadc_buffer_convert(m_buffer, SAMPLES_IN_BUFFER);
@@ -696,6 +705,7 @@ void otPlatLog(otLogLevel aLogLevel, otLogRegion aLogRegion, const char *aFormat
 void init_gpio() 
 {
     nrf_gpio_cfg_output(19);
+    nrf_gpio_pin_write(19, 1);
 }
 
 /***************************************************************************************************
