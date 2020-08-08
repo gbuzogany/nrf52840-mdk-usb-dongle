@@ -19,6 +19,13 @@ const nrf_drv_rtc_t rtc = NRF_DRV_RTC_INSTANCE(0);
 
 int last_read = 0;
 
+int time_8hz = 0;
+int time_sec = 0;
+int time_min = 0;
+
+int open_duration_min = 60;
+int close_duration_min = 1380;
+
 bool valve_closed = true;
 bool valve_should_close = true;
 
@@ -27,13 +34,38 @@ bool valve_should_close = true;
  */
 static void rtc_handler(nrf_drv_rtc_int_type_t int_type)
 {
-    if (int_type == NRF_DRV_RTC_INT_COMPARE0)
-    {
-        NRF_LOG_INFO("COMPARE0");
+    if (valve_closed == true && valve_should_close == true) {
+        time_8hz++;
+        if (time_8hz == 8) {
+            time_8hz = 0;
+            time_sec++;
+        }
+        if (time_sec == 60) {
+            NRF_LOG_INFO("closed for %d seconds", time_sec);
+            time_sec = 0;
+            time_min++;
+        }
+        if (time_min >= close_duration_min) {
+            time_min = 0;
+            valve_should_close = false;
+        }
     }
-    else if (int_type == NRF_DRV_RTC_INT_TICK)
-    {
-        NRF_LOG_INFO("TICK");
+    
+    if (valve_closed == false && valve_should_close == false) {
+        time_8hz++;
+        if (time_8hz == 8) {
+            NRF_LOG_INFO("closed for %d seconds", time_sec);
+            time_8hz = 0;
+            time_sec++;
+        }
+        if (time_sec == 60) {
+            time_sec = 0;
+            time_min++;
+        }
+        if (time_min >= open_duration_min) {
+            time_min = 0;
+            valve_should_close = true;
+        }
     }
 }
 
@@ -97,7 +129,7 @@ void gpio_init()
 {
     nrf_gpio_cfg_input(PIN_IN, NRF_GPIO_PIN_PULLDOWN);
     nrf_gpio_cfg_output(PIN_MOTOR);
-    nrf_gpio_cfg_output(BSP_LED_1);
+    // nrf_gpio_cfg_output(BSP_LED_1);
 }
 
 /**
@@ -107,19 +139,19 @@ void gpio_init()
 void update_motor() {
     if (valve_closed == true && valve_should_close == false) 
     {
-        nrf_gpio_pin_write(BSP_LED_1, 0);
+        // nrf_gpio_pin_write(BSP_LED_1, 0);
 		nrf_gpio_pin_write(PIN_MOTOR, 1);
         NRF_LOG_INFO("Valve opening...");
     }
 	else if (valve_closed == false && valve_should_close == true) 
     {
-        nrf_gpio_pin_write(BSP_LED_1, 0);
+        // nrf_gpio_pin_write(BSP_LED_1, 0);
 		nrf_gpio_pin_write(PIN_MOTOR, 1);
         NRF_LOG_INFO("Valve closing...");
     }
 	else 
     {
-        nrf_gpio_pin_write(BSP_LED_1, 1);
+        // nrf_gpio_pin_write(BSP_LED_1, 1);
 		nrf_gpio_pin_write(PIN_MOTOR, 0);
     }
 }
