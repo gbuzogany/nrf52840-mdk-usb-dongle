@@ -83,11 +83,8 @@ int time_8hz = 0;
 int time_sec = 0;
 int time_min = 0;
 
-// int open_duration_min = 60;
-// int close_duration_min = 1380;
-
-int open_duration_min = 1;
-int close_duration_min = 1;
+int open_duration_min = 60;
+int close_duration_min = 1380;
 
 bool valve_closed = true;
 bool valve_should_close = true;
@@ -429,33 +426,97 @@ static void ble_stack_init(void)
     NRF_SDH_BLE_OBSERVER(m_ble_observer, APP_BLE_OBSERVER_PRIO, ble_evt_handler, NULL);
 }
 
+int parse_int_from_command(ble_nus_evt_rx_data_t const* p_data) 
+{
+    int val = 0;
+    int mul = 1;
+    bool found_num = false;
+    for (int i=p_data->length-1; i > 0; --i) {
+        char curr = p_data->p_data[i];
+        if (found_num == false) {
+            if (curr >= '0' && curr <= '9') {
+                found_num = true;
+            }
+        }
+        if (found_num == true) {
+            if (curr >= '0' && curr <= '9') {
+                val += (curr - '0') * mul;
+                mul *= 10;
+            }
+            else {
+                // end of the number
+                break;
+            }
+        }
+    }
+    return val;
+}
+
+void parse_open_command(ble_nus_evt_rx_data_t const* rx_data) 
+{
+    time_min = 0;
+    time_sec = 0;
+    valve_should_close = false;
+}
+
+void parse_close_command(ble_nus_evt_rx_data_t const* rx_data) 
+{
+    time_min = 0;
+    time_sec = 0;
+    valve_should_close = true;
+}
+
+void parse_open_time_command(ble_nus_evt_rx_data_t const* rx_data) 
+{
+    int val = parse_int_from_command(rx_data);
+    NRF_LOG_INFO("updated open duration to %d min", val);
+    open_duration_min = val;
+}
+
+void parse_close_time_command(ble_nus_evt_rx_data_t const* rx_data) 
+{
+    int val = parse_int_from_command(rx_data);
+    NRF_LOG_INFO("updated close duration to %d min", val);
+    close_duration_min = val;
+}
+
+void parse_uart_command(ble_nus_evt_rx_data_t const* rx_data) 
+{
+    NRF_LOG_INFO("Message length: %d", rx_data->length);
+
+    if (rx_data->length > 0) {
+        if (rx_data->length > 2) {
+            if (rx_data->p_data[0] == 'o' && rx_data->p_data[1] == 't') 
+            {
+                parse_open_time_command(rx_data);
+            }
+            else if (rx_data->p_data[0] == 'c' && rx_data->p_data[1] == 't') 
+            {
+                parse_close_time_command(rx_data);
+            }
+        }
+        if (rx_data->length == 1) {
+            if (rx_data->p_data[0] == 'o') 
+            {
+                parse_open_command(rx_data);
+            }
+            else if (rx_data->p_data[0] == 'c') 
+            {
+                parse_close_command(rx_data);
+            }
+        }
+    }
+}
 
 static void nus_data_handler(ble_nus_evt_t * p_evt)
 {
-
     if (p_evt->type == BLE_NUS_EVT_RX_DATA)
     {
         // uint32_t err_code;
 
-        NRF_LOG_DEBUG("Received data from BLE NUS. Writing data on UART.");
-        NRF_LOG_HEXDUMP_DEBUG(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
-
-        // for (uint32_t i = 0; i < p_evt->params.rx_data.length; i++)
-        // {
-        //     do
-        //     {
-        //         err_code = app_uart_put(p_evt->params.rx_data.p_data[i]);
-        //         if ((err_code != NRF_SUCCESS) && (err_code != NRF_ERROR_BUSY))
-        //         {
-        //             NRF_LOG_ERROR("Failed receiving NUS message. Error 0x%x. ", err_code);
-        //             APP_ERROR_CHECK(err_code);
-        //         }
-        //     } while (err_code == NRF_ERROR_BUSY);
-        // }
-        // if (p_evt->params.rx_data.p_data[p_evt->params.rx_data.length - 1] == '\r')
-        // {
-        //     while (app_uart_put('\n') == NRF_ERROR_BUSY);
-        // }
+        NRF_LOG_INFO("Received data from BLE NUS. Writing data on UART.");
+        NRF_LOG_HEXDUMP_INFO(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
+        parse_uart_command(&p_evt->params.rx_data);
     }
 
 }
