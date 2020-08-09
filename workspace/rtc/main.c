@@ -342,6 +342,8 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
     {
         case BLE_GAP_EVT_CONNECTED:
             NRF_LOG_INFO("Connected");
+            NRF_LOG_INFO("Open duration: %d min", open_duration_min);
+            NRF_LOG_INFO("Close duration: %d min", close_duration_min);
             // bsp_board_led_on(CONNECTED_LED);
             // bsp_board_led_off(ADVERTISING_LED);
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
@@ -353,7 +355,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             NRF_LOG_INFO("Disconnected");
             // bsp_board_led_off(CONNECTED_LED);
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
-            advertising_start();
+            // advertising_start();
             break;
 
         case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
@@ -595,7 +597,7 @@ static void idle_state_handle(void)
     int val = nrf_gpio_pin_read(PIN_IN);
     if (val != last_read) {
         last_read = val;
-        valve_closed = !val;
+        valve_closed = val;
         NRF_LOG_INFO("changed");
     }
     update_motor();
