@@ -455,6 +455,35 @@ int parse_int_from_command(ble_nus_evt_rx_data_t const* p_data)
     return val;
 }
 
+void parse_status_command(ble_nus_evt_rx_data_t const* rx_data)
+{
+    static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
+
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Open duration: %d min", open_duration_min);
+    NRF_LOG_INFO("%s", data_array);
+    uint16_t length = strlen((char *)data_array);
+    uint32_t err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
+    if ((err_code != NRF_ERROR_INVALID_STATE) &&
+        (err_code != NRF_ERROR_RESOURCES) &&
+        (err_code != NRF_ERROR_NOT_FOUND)
+    )
+    {
+        APP_ERROR_CHECK(err_code);
+    }
+
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Close duration: %d min", close_duration_min);
+    NRF_LOG_INFO("%s", data_array);
+    length = strlen((char *)data_array);
+    err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
+    if ((err_code != NRF_ERROR_INVALID_STATE) &&
+        (err_code != NRF_ERROR_RESOURCES) &&
+        (err_code != NRF_ERROR_NOT_FOUND)
+    )
+    {
+        APP_ERROR_CHECK(err_code);
+    }
+}
+
 void parse_open_command(ble_nus_evt_rx_data_t const* rx_data) 
 {
     time_min = 0;
@@ -472,13 +501,26 @@ void parse_close_command(ble_nus_evt_rx_data_t const* rx_data)
 void parse_open_time_command(ble_nus_evt_rx_data_t const* rx_data) 
 {
     int val = parse_int_from_command(rx_data);
-    NRF_LOG_INFO("updated open duration to %d min", val);
     open_duration_min = val;
+
+    static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "updated open duration to %d min", val);
+    NRF_LOG_INFO("%s", data_array);
+    uint16_t length = strlen((char *)data_array);
+    uint32_t err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
+    if ((err_code != NRF_ERROR_INVALID_STATE) &&
+        (err_code != NRF_ERROR_RESOURCES) &&
+        (err_code != NRF_ERROR_NOT_FOUND)
+    )
+    {
+        APP_ERROR_CHECK(err_code);
+    }
 }
 
 void parse_close_time_command(ble_nus_evt_rx_data_t const* rx_data) 
 {
     int val = parse_int_from_command(rx_data);
+    close_duration_min = val;
 
     static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
     snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "updated close duration to %d min", val);
@@ -492,7 +534,6 @@ void parse_close_time_command(ble_nus_evt_rx_data_t const* rx_data)
     {
         APP_ERROR_CHECK(err_code);
     }
-    close_duration_min = val;
 }
 
 void parse_uart_command(ble_nus_evt_rx_data_t const* rx_data) 
@@ -519,6 +560,10 @@ void parse_uart_command(ble_nus_evt_rx_data_t const* rx_data)
             {
                 parse_close_command(rx_data);
             }
+            else if (rx_data->p_data[0] == 's') 
+            {
+                parse_status_command(rx_data);
+            }
         }
     }
 }
@@ -533,7 +578,6 @@ static void nus_data_handler(ble_nus_evt_t * p_evt)
         NRF_LOG_HEXDUMP_INFO(p_evt->params.rx_data.p_data, p_evt->params.rx_data.length);
         parse_uart_command(&p_evt->params.rx_data);
     }
-
 }
 
 ////////////////////////////////
