@@ -6,6 +6,7 @@
 #include "nrf_log_ctrl.h"
 #include "nrf_log.h"
 #include "nrf_log_default_backends.h"
+#include "nrf_error.h"
 
 // ble
 #include "ble_hci.h"
@@ -49,7 +50,7 @@ const nrf_drv_rtc_t rtc = NRF_DRV_RTC_INSTANCE(2);
 #define APP_BLE_CONN_CFG_TAG            1                                       /**< A tag identifying the SoftDevice BLE configuration. */
 
 #define APP_ADV_INTERVAL                64                                      /**< The advertising interval (in units of 0.625 ms; this value corresponds to 40 ms). */
-#define APP_ADV_DURATION                18000                                   /**< The advertising time-out (in units of seconds). When set to 0, we will never time out. */
+#define APP_ADV_DURATION                0                                   /**< The advertising time-out (in units of seconds). When set to 0, we will never time out. */
 
 #define MIN_CONN_INTERVAL               MSEC_TO_UNITS(20, UNIT_1_25_MS)             /**< Minimum acceptable connection interval (20 ms), Connection interval uses 1.25 ms units. */
 #define MAX_CONN_INTERVAL               MSEC_TO_UNITS(75, UNIT_1_25_MS)             /**< Maximum acceptable connection interval (75 ms), Connection interval uses 1.25 ms units. */
@@ -249,7 +250,7 @@ static void advertising_init(void)
 
     init.advdata.name_type          = BLE_ADVDATA_FULL_NAME;
     init.advdata.include_appearance = false;
-    init.advdata.flags              = BLE_GAP_ADV_FLAGS_LE_ONLY_LIMITED_DISC_MODE;
+    init.advdata.flags              = BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE;
 
     init.srdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
     init.srdata.uuids_complete.p_uuids  = m_adv_uuids;
@@ -478,7 +479,19 @@ void parse_open_time_command(ble_nus_evt_rx_data_t const* rx_data)
 void parse_close_time_command(ble_nus_evt_rx_data_t const* rx_data) 
 {
     int val = parse_int_from_command(rx_data);
-    NRF_LOG_INFO("updated close duration to %d min", val);
+
+    static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "updated close duration to %d min", val);
+    NRF_LOG_INFO("%s", data_array);
+    uint16_t length = strlen((char *)data_array);
+    uint32_t err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
+    if ((err_code != NRF_ERROR_INVALID_STATE) &&
+        (err_code != NRF_ERROR_RESOURCES) &&
+        (err_code != NRF_ERROR_NOT_FOUND)
+    )
+    {
+        APP_ERROR_CHECK(err_code);
+    }
     close_duration_min = val;
 }
 
