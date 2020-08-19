@@ -459,7 +459,7 @@ void parse_status_command(ble_nus_evt_rx_data_t const* rx_data)
 {
     static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
 
-    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Open duration: %d min", open_duration_min);
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Open duration: %d min\n", open_duration_min);
     NRF_LOG_INFO("%s", data_array);
     uint16_t length = strlen((char *)data_array);
     uint32_t err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
@@ -471,7 +471,38 @@ void parse_status_command(ble_nus_evt_rx_data_t const* rx_data)
         APP_ERROR_CHECK(err_code);
     }
 
-    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Close duration: %d min", close_duration_min);
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Close duration: %d min\n", close_duration_min);
+    NRF_LOG_INFO("%s", data_array);
+    length = strlen((char *)data_array);
+    err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
+    if ((err_code != NRF_ERROR_INVALID_STATE) &&
+        (err_code != NRF_ERROR_RESOURCES) &&
+        (err_code != NRF_ERROR_NOT_FOUND)
+    )
+    {
+        APP_ERROR_CHECK(err_code);
+    }
+
+    if (valve_closed) 
+    {
+        snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Now, closed.\n");
+    }
+    else
+    {
+        snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Now, open.\n");
+    }
+    NRF_LOG_INFO("%s", data_array);
+    length = strlen((char *)data_array);
+    err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
+    if ((err_code != NRF_ERROR_INVALID_STATE) &&
+        (err_code != NRF_ERROR_RESOURCES) &&
+        (err_code != NRF_ERROR_NOT_FOUND)
+    )
+    {
+        APP_ERROR_CHECK(err_code);
+    }
+
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Time: %02d:%02d\n", time_min, time_sec);
     NRF_LOG_INFO("%s", data_array);
     length = strlen((char *)data_array);
     err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
@@ -504,7 +535,7 @@ void parse_open_time_command(ble_nus_evt_rx_data_t const* rx_data)
     open_duration_min = val;
 
     static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
-    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "updated open duration to %d min", val);
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Updated open duration to %d min\n", val);
     NRF_LOG_INFO("%s", data_array);
     uint16_t length = strlen((char *)data_array);
     uint32_t err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
@@ -523,7 +554,26 @@ void parse_close_time_command(ble_nus_evt_rx_data_t const* rx_data)
     close_duration_min = val;
 
     static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
-    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "updated close duration to %d min", val);
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Updated close duration to %d min\n", val);
+    NRF_LOG_INFO("%s", data_array);
+    uint16_t length = strlen((char *)data_array);
+    uint32_t err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
+    if ((err_code != NRF_ERROR_INVALID_STATE) &&
+        (err_code != NRF_ERROR_RESOURCES) &&
+        (err_code != NRF_ERROR_NOT_FOUND)
+    )
+    {
+        APP_ERROR_CHECK(err_code);
+    }
+}
+
+void parse_set_minutes_command(ble_nus_evt_rx_data_t const* rx_data) 
+{
+    int val = parse_int_from_command(rx_data);
+    time_min = val;
+
+    static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
+    snprintf((char *)data_array, BLE_NUS_MAX_DATA_LEN, "Updated time: %02d:%02d\n", time_min, time_sec);
     NRF_LOG_INFO("%s", data_array);
     uint16_t length = strlen((char *)data_array);
     uint32_t err_code = ble_nus_data_send(&m_nus, data_array, &length, m_conn_handle);
@@ -549,6 +599,10 @@ void parse_uart_command(ble_nus_evt_rx_data_t const* rx_data)
             else if (rx_data->p_data[0] == 'c' && rx_data->p_data[1] == 't') 
             {
                 parse_close_time_command(rx_data);
+            }
+            else if (rx_data->p_data[0] == 's' && rx_data->p_data[1] == 'm') 
+            {
+                parse_set_minutes_command(rx_data);
             }
         }
         if (rx_data->length == 1) {
