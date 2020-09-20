@@ -65,14 +65,19 @@ static mqttsn_topic_t       m_topic            =                            /**<
 };
 
 // end mqtt sn
-// saadc
+// saadc.
 
-#define SAMPLES_IN_BUFFER 1000
+#define SAMPLES_IN_BUFFER 10000
 
 static char buffer[200] = {};
 
+static float offset = 1.636;
+static int curr_block = 0;
+static float total_block = 0;
+static int NUM_BLOCKS = 1;
+
 static const nrf_drv_timer_t m_timer = NRF_DRV_TIMER_INSTANCE(2);
-static nrf_saadc_value_t     m_buffer[SAMPLES_IN_BUFFER];
+static nrf_saadc_value_t     m_buffer[2][SAMPLES_IN_BUFFER];
 
 // end saadc
 static void find_gateway();
@@ -462,52 +467,83 @@ void timer_handler(nrf_timer_event_t event_type, void * p_context)
     nrf_drv_saadc_sample();
 }
 
+void send_measurements(float current_rms, float apparent_power) 
+{
+    ret_code_t err_code;
+
+    // sprintf(buffer, "current_rms: %f", current_rms);
+    // otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "%s", buffer);
+    // sprintf(buffer, "apparent_power: %f", apparent_power);
+    // otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "apparent_power: %f", apparent_power);
+
+    if (mqttsn_client_state_get(&m_client) == MQTTSN_CLIENT_CONNECTED)
+    {
+        sprintf(buffer, "{ \"i_rms\" : %f, \"power_va\" : %f }", 
+            current_rms,
+            apparent_power
+        );
+
+        err_code = mqttsn_client_publish(&m_client, m_topic.topic_id, (uint8_t*)&buffer, strlen(buffer), &m_msg_id);
+        if (err_code != NRF_SUCCESS)
+        {
+            NRF_LOG_ERROR("PUBLISH message could not be sent. Error code: 0x%x\r\n", err_code);
+        }
+        sleep();
+    }
+    else if (has_valid_role())
+    {
+        find_gateway();
+    }
+}
+
 void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 {
-    float offset = 1.6653044224;
-    float acc = 0;
-    float voltage_rms = 240.0;
 
     if (p_event->type == NRF_DRV_SAADC_EVT_DONE)
     {
-        ret_code_t err_code;
+        float acc = 0;
+        float avg = 0;
+        float voltage_rms = 240;
 
-        err_code = nrf_drv_saadc_buffer_convert(p_event->data.done.p_buffer, SAMPLES_IN_BUFFER);
+        ret_code_t err_code = nrf_drv_saadc_buffer_convert(p_event->data.done.p_buffer, SAMPLES_IN_BUFFER);
         APP_ERROR_CHECK(err_code);
+        
+        float vref = 3.4;
 
         for (int i = 0; i < SAMPLES_IN_BUFFER; i++)
         {
-            float sense_voltage = p_event->data.done.p_buffer[i] * 0.0034655819 - offset;
-            float current = (sense_voltage / 150.0) * 2000.0;
-            acc += pow(current, 2);
+            // if (i % 100 == 0) {
+            //     sprintf(buffer, "%d %f", p_event->data.done.p_buffer[i], p_event->data.done.p_buffer[i] * vref / 4096);
+            //     otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "%s", buffer);
+            // }
+            
+            float sense_voltage = p_event->data.done.p_buffer[i] * vref / 4096;
+            // burden resistor = 150 ohm
+            // number of turns in transformer = 2000
+            float current = ((sense_voltage  - offset) / 150.0) * 2000.0;
+            avg += 1.0/(float)SAMPLES_IN_BUFFER * sense_voltage;
+            acc += 1.0/(float)SAMPLES_IN_BUFFER * pow(current, 2);
         }
+        offset = avg;
 
-        float current_rms = sqrt(acc / SAMPLES_IN_BUFFER) - 0.045;
+        float current_rms = sqrt(acc);
         float apparent_power = voltage_rms * current_rms;
 
-        sprintf(buffer, "iRMS: %f\nApparent Power: %f", current_rms, apparent_power);
-        NRF_LOG_ERROR("%s", buffer);
+        total_block += 1.0/(float)NUM_BLOCKS * current_rms;
+        curr_block++;
 
-        if (mqttsn_client_state_get(&m_client) == MQTTSN_CLIENT_CONNECTED)
+        // sprintf(buffer, "avg: %f a: %f (%f)", avg, current_rms, apparent_power);
+        // otPlatLog(OT_LOG_LEVEL_DEBG, OT_LOG_REGION_UTIL, "%s", buffer);
+
+        if (curr_block == NUM_BLOCKS) 
         {
-            sprintf(buffer, "{ \"i_rms\" : %f, \"power_va\" : %f }", 
-                current_rms,
-                apparent_power
-            );
-
-            // NRF_LOG_ERROR("Publishing ADC state %s", buffer);
-
-            err_code = mqttsn_client_publish(&m_client, m_topic.topic_id, (uint8_t*)&buffer, strlen(buffer), &m_msg_id);
-            if (err_code != NRF_SUCCESS)
-            {
-                NRF_LOG_ERROR("PUBLISH message could not be sent. Error code: 0x%x\r\n", err_code);
-            }
-            sleep();
+            current_rms = total_block;
+            apparent_power = voltage_rms * current_rms;
+            total_block = 0;
+            curr_block = 0;
+            send_measurements(current_rms, apparent_power);
         }
-        else if (has_valid_role())
-        {
-            find_gateway();
-        }
+        // OT_UNUSED_VARIABLE(find_gateway);
     }
 }
 
@@ -515,24 +551,34 @@ void saadc_callback(nrf_drv_saadc_evt_t const * p_event)
 void saadc_init(void)
 {
     ret_code_t err_code;
-    uint32_t time_ms = 10;
+    uint32_t time_us = 100;
     uint32_t time_ticks;
     
-    err_code = nrf_drv_saadc_init(NULL, saadc_callback);
+    nrf_drv_saadc_config_t saadc_config;
+
+    saadc_config.low_power_mode = false;                                                   //Enable low power mode.
+    saadc_config.resolution = NRF_SAADC_RESOLUTION_12BIT;                                 //Set SAADC resolution to 12-bit. This will make the SAADC output values from 0 (when input voltage is 0V) to 2^12=4096 (when input voltage is 3.6V for channel gain setting of 1/6).
+    saadc_config.oversample = NRF_SAADC_OVERSAMPLE_DISABLED;                                           //Set oversample to 4x. This will make the SAADC output a single averaged value when the SAMPLE task is triggered 4 times.
+    saadc_config.interrupt_priority = APP_IRQ_PRIORITY_MID;                               //Set SAADC interrupt to low priority.
+    
+    err_code = nrf_drv_saadc_init(&saadc_config, saadc_callback);
     APP_ERROR_CHECK(err_code);
 
     nrf_saadc_channel_config_t channel_config_a0 = NRF_DRV_SAADC_DEFAULT_CHANNEL_CONFIG_SE(NRF_SAADC_INPUT_AIN0);
     err_code = nrf_drv_saadc_channel_init(0, &channel_config_a0);
     APP_ERROR_CHECK(err_code);
 
-    err_code = nrf_drv_saadc_buffer_convert(m_buffer, SAMPLES_IN_BUFFER);
+    err_code = nrf_drv_saadc_buffer_convert(m_buffer[0], SAMPLES_IN_BUFFER);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = nrf_drv_saadc_buffer_convert(m_buffer[1], SAMPLES_IN_BUFFER);
     APP_ERROR_CHECK(err_code);
 
     nrf_drv_timer_config_t timer_cfg = NRF_DRV_TIMER_DEFAULT_CONFIG;
     err_code = nrf_drv_timer_init(&m_timer, &timer_cfg, timer_handler);
     APP_ERROR_CHECK(err_code);
 
-    time_ticks = nrf_drv_timer_ms_to_ticks(&m_timer, time_ms);
+    time_ticks = nrf_drv_timer_us_to_ticks(&m_timer, time_us);
 
     nrf_drv_timer_extended_compare(
         &m_timer, NRF_TIMER_CC_CHANNEL0, time_ticks, NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK, true);
